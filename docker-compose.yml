@@ -1,0 +1,24 @@
+services:
+  esus-manager:
+    build: .
+    container_name: esus-manager
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - esus-data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - FLASK_ENV=production
+      - DB_PATH=/app/data/config.db
+    networks:
+      - esus-net
+
+networks:
+  esus-net:
+    external: true
+    name: esus_teste_default
+
+volumes:
+  esus-data:
+    driver: local

@@ -1,0 +1,5 @@
+flask>=2.3
+paramiko>=3.0
+requests>=2.31
+beautifulsoup4>=4.12
+playwright>=1.40
