@@ -1,13 +1,22 @@
 services:
   esus-manager:
-    build: .
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: esus-manager
     restart: unless-stopped
     ports:
       - "5000:5000"
     volumes:
+      # Dados persistentes
       - esus-data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./backup_dbesus:/app/data/backup_dbesus
+
+      # Hot-reload: qualquer mudança no host replica no container imediatamente
+      - ./backend/app.py:/app/app.py
+      - ./backend/sync_script.py:/app/sync_script.py
+      - ./frontend:/app/frontend
     environment:
       - FLASK_ENV=production
       - DB_PATH=/app/data/config.db

@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gerenciador de Atualizações e-SUS PEC — Gerenciador | Usuários</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: #f1f5f9;
+        color: #1e293b;
+        min-height: 100vh;
+      }
+
+      /* ── Header ── */
+      header {
+        background: #0052a3;
+        color: #fff;
+        height: 62px;
+        display: flex;
+        align-items: center;
+        padding: 0 2rem;
+        gap: 1rem;
+        box-shadow: 0 2px 12px rgba(0,0,0,.25);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }
+      .h-logo {
+        font-size: 1.2rem; font-weight: 800; letter-spacing: .3px;
+        display: flex; align-items: center; gap: .5rem;
+      }
+      .h-sep { width: 1px; height: 28px; background: rgba(255,255,255,.25); }
+      .h-sub { font-size: .8rem; opacity: .75; }
+      .h-right { margin-left: auto; display: flex; align-items: center; gap: .75rem; }
+      .h-badge {
+        background: rgba(255,255,255,.15); border-radius: 6px;
+        padding: .28rem .75rem; font-size: .76rem; font-weight: 700; letter-spacing: .3px;
+      }
+      .h-user {
+        display: flex; align-items: center; gap: .5rem;
+        font-size: .82rem; font-weight: 600; opacity: .9;
+      }
+      .h-user svg { opacity: .8; }
+      .btn-sair {
+        display: flex; align-items: center; gap: .4rem;
+        background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2);
+        color: #fff; border-radius: 7px; padding: .3rem .75rem;
+        font-size: .78rem; font-weight: 600; cursor: pointer;
+        font-family: inherit; transition: background .2s;
+      }
+      .btn-sair:hover { background: rgba(255,255,255,.22); }
+
+      /* ── Nav ── */
+      nav {
+        background: #fff; border-bottom: 2px solid #e2e8f0;
+        display: flex; padding: 0 2rem;
+      }
+      .nav-btn {
+        padding: .85rem 1.2rem; border: none; background: none; cursor: pointer;
+        font-size: .88rem; font-weight: 600; color: #64748b;
+        border-bottom: 3px solid transparent; margin-bottom: -2px;
+        transition: all .2s; display: flex; align-items: center; gap: .5rem;
+        font-family: inherit; text-decoration: none;
+      }
+      .nav-btn:hover { color: #0052a3; }
+      .nav-btn.active { color: #0052a3; border-bottom-color: #0052a3; }
+
+      /* ── Wrap ── */
+      .wrap { max-width: 980px; margin: 2rem auto; padding: 0 1rem; }
+
+      /* ── Card ── */
+      .card {
+        background: #fff; border-radius: 14px;
+        box-shadow: 0 1px 6px rgba(0,0,0,.07);
+        margin-bottom: 1.5rem; overflow: hidden;
+      }
+      .card-head {
+        padding: 1rem 1.5rem; border-bottom: 1px solid #f1f5f9;
+        display: flex; align-items: center; justify-content: space-between;
+      }
+      .card-head-left {
+        display: flex; align-items: center; gap: .6rem;
+        font-weight: 700; font-size: .95rem;
+      }
+      .card-desc { font-size: .82rem; color: #64748b; margin-top: .25rem; font-weight: 400; }
+      .card-body { padding: 1.5rem; }
+
+      /* ── Botões ── */
+      .btn {
+        display: inline-flex; align-items: center; gap: .4rem;
+        padding: .55rem 1.1rem; border-radius: 8px; border: none;
+        cursor: pointer; font-size: .86rem; font-weight: 600;
+        transition: all .2s; white-space: nowrap; font-family: inherit;
+      }
+      .btn-primary { background: #0052a3; color: #fff; }
+      .btn-primary:hover { background: #003d7a; }
+      .btn-danger { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
+      .btn-danger:hover { background: #fecaca; }
+      .btn-ghost { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+      .btn-ghost:hover { background: #e2e8f0; }
+      .btn-sm { padding: .35rem .75rem; font-size: .8rem; gap: .3rem; }
+      .btn-warning { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+      .btn-warning:hover { background: #ffedd5; }
+
+      /* ── Tabela ── */
+      .tabela-wrap { overflow-x: auto; }
+      table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+      thead tr { background: #f8fafc; }
+      th {
+        padding: .75rem 1rem; text-align: left; font-weight: 700;
+        font-size: .75rem; text-transform: uppercase; letter-spacing: .5px;
+        color: #64748b; border-bottom: 1px solid #e2e8f0;
+      }
+      td {
+        padding: .8rem 1rem; border-bottom: 1px solid #f1f5f9;
+        vertical-align: middle;
+      }
+      tr:last-child td { border-bottom: none; }
+      tr:hover td { background: #f8fafc; }
+      .td-acoes { display: flex; gap: .5rem; }
+
+      /* ── Badge perfil ── */
+      .badge {
+        display: inline-flex; align-items: center; gap: .3rem;
+        padding: .2rem .65rem; border-radius: 20px;
+        font-size: .75rem; font-weight: 700; letter-spacing: .3px;
+      }
+      .badge-admin { background: #dbeafe; color: #1d4ed8; }
+      .badge-operador { background: #dcfce7; color: #15803d; }
+      .badge-viewer { background: #f1f5f9; color: #475569; }
+
+      /* ── Badge status ── */
+      .status-dot {
+        display: inline-flex; align-items: center; gap: .4rem;
+        font-size: .82rem; font-weight: 600;
+      }
+      .dot {
+        width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      }
+      .dot-ativo { background: #22c55e; }
+      .dot-inativo { background: #94a3b8; }
+
+      /* ── Empty state ── */
+      .empty-state {
+        text-align: center; padding: 3rem 1rem; color: #94a3b8;
+      }
+      .empty-state svg { margin-bottom: .75rem; opacity: .4; }
+      .empty-state p { font-size: .9rem; }
+
+      /* ── Modal overlay ── */
+      .modal-overlay {
+        display: none; position: fixed; inset: 0;
+        background: rgba(15,23,42,.45); backdrop-filter: blur(2px);
+        z-index: 200; align-items: center; justify-content: center; padding: 1rem;
+      }
+      .modal-overlay.aberto { display: flex; animation: fadeIn .15s ease; }
+
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to   { opacity: 1; }
+      }
+
+      /* ── Modal ── */
+      .modal {
+        background: #fff; border-radius: 16px; width: 100%; max-width: 500px;
+        box-shadow: 0 20px 60px rgba(0,0,0,.2);
+        animation: slideUp .2s ease;
+        max-height: 90vh; overflow-y: auto;
+      }
+
+      @keyframes slideUp {
+        from { transform: translateY(16px); opacity: 0; }
+        to   { transform: translateY(0); opacity: 1; }
+      }
+
+      .modal-head {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 1.25rem 1.5rem; border-bottom: 1px solid #f1f5f9;
+      }
+      .modal-head h2 {
+        display: flex; align-items: center; gap: .6rem;
+        font-size: 1rem; font-weight: 700; color: #0f172a;
+      }
+      .modal-close {
+        background: #f1f5f9; border: none; cursor: pointer;
+        border-radius: 8px; padding: .4rem; color: #64748b;
+        display: flex; align-items: center; transition: background .2s;
+      }
+      .modal-close:hover { background: #e2e8f0; color: #1e293b; }
+      .modal-body { padding: 1.5rem; }
+      .modal-footer {
+        padding: 1rem 1.5rem; border-top: 1px solid #f1f5f9;
+        display: flex; justify-content: flex-end; gap: .75rem;
+      }
+
+      /* ── Form dentro do modal ── */
+      .form-sec { margin-bottom: 1.5rem; }
+      .sec-title {
+        display: flex; align-items: center; gap: .4rem;
+        font-size: .72rem; font-weight: 700; text-transform: uppercase;
+        letter-spacing: .6px; color: #94a3b8; margin-bottom: .9rem;
+        padding-bottom: .5rem; border-bottom: 1px solid #f1f5f9;
+      }
+      .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+      .form-row.c1 { grid-template-columns: 1fr; }
+      .fg { display: flex; flex-direction: column; gap: .35rem; }
+      .fg.full { grid-column: 1/-1; }
+      .fg label { font-size: .8rem; font-weight: 600; color: #475569; }
+      .fg input, .fg select {
+        padding: .6rem .85rem; border: 1.5px solid #e2e8f0; border-radius: 8px;
+        font-size: .88rem; font-family: inherit; color: #1e293b;
+        background: #f8fafc; outline: none;
+        transition: border-color .2s, box-shadow .2s, background .2s;
+      }
+      .fg input:focus, .fg select:focus {
+        border-color: #0052a3; background: #fff;
+        box-shadow: 0 0 0 3px rgba(0,82,163,.1);
+      }
+      .fg .hint {
+        font-size: .75rem; color: #94a3b8;
+        display: flex; align-items: center; gap: .3rem;
+      }
+      .fg input.campo-erro { border-color: #dc2626; background: #fff5f5; }
+
+      /* ── Info box ── */
+      .info-box {
+        display: flex; align-items: flex-start; gap: .6rem;
+        background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;
+        padding: .75rem 1rem; font-size: .82rem; color: #1d4ed8;
+        margin-bottom: 1.25rem;
+      }
+
+      /* ── Erro modal ── */
+      .modal-erro {
+        display: none; align-items: flex-start; gap: .6rem;
+        background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px;
+        padding: .7rem 1rem; font-size: .83rem; color: #b91c1c;
+        margin-bottom: 1rem;
+      }
+      .modal-erro.visivel { display: flex; }
+
+      /* ── Confirm dialog ── */
+      .confirm-overlay {
+        display: none; position: fixed; inset: 0;
+        background: rgba(15,23,42,.5); backdrop-filter: blur(2px);
+        z-index: 300; align-items: center; justify-content: center; padding: 1rem;
+      }
+      .confirm-overlay.aberto { display: flex; }
+      .confirm-box {
+        background: #fff; border-radius: 14px; max-width: 400px; width: 100%;
+        box-shadow: 0 20px 60px rgba(0,0,0,.2); padding: 1.75rem;
+        text-align: center;
+      }
+      .confirm-box h3 { font-size: 1rem; font-weight: 700; margin-bottom: .5rem; }
+      .confirm-box p { font-size: .875rem; color: #64748b; margin-bottom: 1.5rem; }
+      .confirm-actions { display: flex; gap: .75rem; justify-content: center; }
+
+      /* ── Toast ── */
+      .toast {
+        position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 400;
+        background: #1e293b; color: #fff; border-radius: 10px;
+        padding: .75rem 1.25rem; font-size: .875rem; font-weight: 600;
+        display: flex; align-items: center; gap: .6rem;
+        box-shadow: 0 8px 24px rgba(0,0,0,.2);
+        transform: translateY(100px); opacity: 0;
+        transition: transform .3s ease, opacity .3s ease;
+        pointer-events: none;
+      }
+      .toast.visivel { transform: translateY(0); opacity: 1; }
+      .toast.sucesso { background: #166534; }
+      .toast.erro { background: #b91c1c; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="h-logo">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2.2"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+        </svg>
+        e-SUS PEC
+      </div>
+      <span class="h-sep"></span>
+      <span class="h-sub">Gerenciador de Atualizações</span>
+      <div class="h-right">
+        <span class="h-badge">PMSL</span>
+        <span class="h-user" id="h-user-nome">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+          Carregando...
+        </span>
+        <button class="btn-sair" onclick="sair()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2.5"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          Sair
+        </button>
+      </div>
+    </header>
+
+    <nav>
+      <a class="nav-btn" href="index.html">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2.3"
+          stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+          <polyline points="17 6 23 6 23 12"/>
+        </svg>
+        Atualizar
+      </a>
+      <a class="nav-btn" href="index.html">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2.3"
+          stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="12 2 2 7 12 12 22 7 12 2"/>
+          <polyline points="2 17 12 22 22 17"/>
+          <polyline points="2 12 12 17 22 12"/>
+        </svg>
+        Versões
+      </a>
+      <a class="nav-btn" href="index.html">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2.3"
+          stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2"/>
+          <line x1="8" y1="21" x2="16" y2="21"/>
+          <line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+        Ambientes
+      </a>
+      <a class="nav-btn active" href="usuarios.html">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2.3"
+          stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+        Usuários
+      </a>
+    </nav>
+
+    <div class="wrap">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-head-left">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+              stroke="#0052A3" stroke-width="2.3"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            <div>
+              Usuários
+              <div class="card-desc">Gerencie os usuários com acesso ao sistema</div>
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="abrirModal()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Novo Usuário
+          </button>
+        </div>
+        <div class="card-body" style="padding:0">
+          <div class="tabela-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>Usuário</th>
+                  <th>Perfil</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-usuarios"></tbody>
+            </table>
+            <div id="empty-state" class="empty-state" style="display:none">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="1.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+              <p>Nenhum usuário cadastrado.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Modal Criar/Editar ── -->
+    <div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)fecharModal()">
+      <div class="modal">
+        <div class="modal-head">
+          <h2 id="modal-titulo">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="#0052A3" stroke-width="2.3"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <line x1="19" y1="8" x2="19" y2="14"/>
+              <line x1="22" y1="11" x2="16" y2="11"/>
+            </svg>
+            Novo Usuário
+          </h2>
+          <button class="modal-close" onclick="fecharModal()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+
+          <div class="modal-erro" id="modal-erro">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.2"
+              stroke-linecap="round" stroke-linejoin="round"
+              style="flex-shrink:0; margin-top:.1rem">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span id="modal-erro-msg"></span>
+          </div>
+
+          <!-- Identificação -->
+          <div class="form-sec">
+            <div class="sec-title">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2.3"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+              Identificação
+            </div>
+            <div class="form-row">
+              <div class="fg full">
+                <label>Nome completo *</label>
+                <input type="text" id="f-nome" placeholder="Ex: João da Silva" autocomplete="off"/>
+              </div>
+              <div class="fg">
+                <label>Login (usuário) *</label>
+                <input type="text" id="f-usuario" placeholder="Ex: joao.silva" autocomplete="off"/>
+                <span class="hint">Apenas letras, números e ponto.</span>
+              </div>
+              <div class="fg">
+                <label>Perfil *</label>
+                <select id="f-perfil">
+                  <option value="">Selecione...</option>
+                  <option value="admin">Administrador</option>
+                  <option value="operador">Operador</option>
+                  <option value="viewer">Visualizador</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Senha -->
+          <div class="form-sec">
+            <div class="sec-title">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2.3"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              Senha
+            </div>
+            <div id="hint-editar" class="info-box" style="display:none">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2.2"
+                stroke-linecap="round" stroke-linejoin="round"
+                style="flex-shrink:0; margin-top:.1rem">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <span>Deixe os campos de senha em branco para manter a senha atual.</span>
+            </div>
+            <div class="form-row">
+              <div class="fg">
+                <label id="label-senha">Senha *</label>
+                <input type="password" id="f-senha" placeholder="Mínimo 6 caracteres" autocomplete="new-password"/>
+              </div>
+              <div class="fg">
+                <label id="label-confirmacao">Confirmação *</label>
+                <input type="password" id="f-confirmacao" placeholder="Repita a senha" autocomplete="new-password"/>
+              </div>
+            </div>
+          </div>
+
+          <!-- Status (só em edição) -->
+          <div class="form-sec" id="sec-status" style="display:none">
+            <div class="sec-title">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2.3"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+              Status
+            </div>
+            <div class="fg" style="flex-direction:row; align-items:center; gap:.75rem">
+              <input type="checkbox" id="f-ativo" style="width:16px; height:16px; accent-color:#0052a3; cursor:pointer"/>
+              <label for="f-ativo" style="cursor:pointer; font-size:.875rem; font-weight:500; color:#1e293b; text-transform:none; letter-spacing:normal">
+                Usuário ativo
+              </label>
+            </div>
+          </div>
+
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+          <button class="btn btn-primary" id="btn-salvar" onclick="salvar()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+              <polyline points="17 21 17 13 7 13 7 21"/>
+              <polyline points="7 3 7 8 15 8"/>
+            </svg>
+            Salvar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Confirm dialog ── -->
+    <div class="confirm-overlay" id="confirm-overlay">
+      <div class="confirm-box">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
+          stroke="#dc2626" stroke-width="1.8"
+          stroke-linecap="round" stroke-linejoin="round"
+          style="margin-bottom:.75rem">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <h3>Excluir usuário?</h3>
+        <p id="confirm-msg">Esta ação não pode ser desfeita.</p>
+        <div class="confirm-actions">
+          <button class="btn btn-ghost" onclick="fecharConfirm()">Cancelar</button>
+          <button class="btn btn-danger" id="btn-confirmar-excluir">Excluir</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Toast ── -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+      const USUARIOS_KEY = "esus_usuarios";
+      let editandoIndex = null;
+
+      // ── Sessão ──────────────────────────────────────────
+      const sessao = JSON.parse(sessionStorage.getItem("esus_sessao") || "null");
+      if (sessao) {
+        document.getElementById("h-user-nome").innerHTML = `
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+          ${sessao.nome}`;
+      }
+
+      function sair() {
+        sessionStorage.removeItem("esus_sessao");
+        window.location.href = "login.html";
+      }
+
+      // ── Storage ──────────────────────────────────────────
+      function carregarUsuarios() {
+        const raw = localStorage.getItem(USUARIOS_KEY);
+        if (raw) return JSON.parse(raw);
+        const padrao = [{
+          usuario: "admin", senha: "admin123",
+          nome: "Administrador", perfil: "admin", ativo: true
+        }];
+        localStorage.setItem(USUARIOS_KEY, JSON.stringify(padrao));
+        return padrao;
+      }
+
+      function salvarUsuarios(lista) {
+        localStorage.setItem(USUARIOS_KEY, JSON.stringify(lista));
+      }
+
+      // ── Renderizar tabela ─────────────────────────────────
+      function renderTabela() {
+        const usuarios = carregarUsuarios();
+        const tbody = document.getElementById("tbody-usuarios");
+        const empty = document.getElementById("empty-state");
+
+        if (usuarios.length === 0) {
+          tbody.innerHTML = "";
+          empty.style.display = "block";
+          return;
+        }
+        empty.style.display = "none";
+
+        const perfilLabel = { admin: "Administrador", operador: "Operador", viewer: "Visualizador" };
+        const perfilCls   = { admin: "badge-admin", operador: "badge-operador", viewer: "badge-viewer" };
+
+        tbody.innerHTML = usuarios.map((u, i) => `
+          <tr>
+            <td><strong>${esc(u.nome)}</strong></td>
+            <td><code style="font-size:.82rem; color:#0052a3; background:#eff6ff; padding:.15rem .5rem; border-radius:5px">${esc(u.usuario)}</code></td>
+            <td>
+              <span class="badge ${perfilCls[u.perfil] || 'badge-viewer'}">
+                ${perfilLabel[u.perfil] || u.perfil}
+              </span>
+            </td>
+            <td>
+              <span class="status-dot">
+                <span class="dot ${u.ativo ? 'dot-ativo' : 'dot-inativo'}"></span>
+                ${u.ativo ? 'Ativo' : 'Inativo'}
+              </span>
+            </td>
+            <td>
+              <div class="td-acoes">
+                <button class="btn btn-ghost btn-sm" onclick="editarUsuario(${i})">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2.3"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                  Editar
+                </button>
+                <button class="btn btn-danger btn-sm" onclick="confirmarExcluir(${i})" ${u.usuario === 'admin' ? 'disabled title="Usuário admin não pode ser excluído"' : ''}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2.3"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6"/>
+                    <path d="M14 11v6"/>
+                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                  </svg>
+                  Excluir
+                </button>
+              </div>
+            </td>
+          </tr>`).join("");
+      }
+
+      function esc(str) {
+        return String(str)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      // ── Modal ─────────────────────────────────────────────
+      function abrirModal(modo = "criar") {
+        editandoIndex = null;
+        limparModal();
+        document.getElementById("hint-editar").style.display = "none";
+        document.getElementById("sec-status").style.display = "none";
+        document.getElementById("label-senha").textContent = "Senha *";
+        document.getElementById("label-confirmacao").textContent = "Confirmação *";
+        document.getElementById("modal-titulo").innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="#0052A3" stroke-width="2.3"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <line x1="19" y1="8" x2="19" y2="14"/>
+            <line x1="22" y1="11" x2="16" y2="11"/>
+          </svg>
+          Novo Usuário`;
+        document.getElementById("modal-overlay").classList.add("aberto");
+        setTimeout(() => document.getElementById("f-nome").focus(), 100);
+      }
+
+      function editarUsuario(i) {
+        const usuarios = carregarUsuarios();
+        const u = usuarios[i];
+        editandoIndex = i;
+        limparModal();
+
+        document.getElementById("modal-titulo").innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="#0052A3" stroke-width="2.3"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+          Editar Usuário`;
+
+        document.getElementById("f-nome").value = u.nome;
+        document.getElementById("f-usuario").value = u.usuario;
+        document.getElementById("f-perfil").value = u.perfil;
+        document.getElementById("f-ativo").checked = u.ativo;
+
+        document.getElementById("hint-editar").style.display = "flex";
+        document.getElementById("sec-status").style.display = "block";
+        document.getElementById("label-senha").textContent = "Nova senha";
+        document.getElementById("label-confirmacao").textContent = "Confirmação";
+
+        document.getElementById("modal-overlay").classList.add("aberto");
+        setTimeout(() => document.getElementById("f-nome").focus(), 100);
+      }
+
+      function fecharModal() {
+        document.getElementById("modal-overlay").classList.remove("aberto");
+        editandoIndex = null;
+      }
+
+      function limparModal() {
+        ["f-nome","f-usuario","f-senha","f-confirmacao"].forEach(id => {
+          const el = document.getElementById(id);
+          el.value = "";
+          el.classList.remove("campo-erro");
+        });
+        document.getElementById("f-perfil").value = "";
+        document.getElementById("f-ativo").checked = true;
+        ocultarErroModal();
+      }
+
+      function mostrarErroModal(msg) {
+        document.getElementById("modal-erro-msg").textContent = msg;
+        document.getElementById("modal-erro").classList.add("visivel");
+      }
+
+      function ocultarErroModal() {
+        document.getElementById("modal-erro").classList.remove("visivel");
+      }
+
+      // ── Salvar ────────────────────────────────────────────
+      function salvar() {
+        ocultarErroModal();
+        const nome        = document.getElementById("f-nome").value.trim();
+        const usuario     = document.getElementById("f-usuario").value.trim();
+        const perfil      = document.getElementById("f-perfil").value;
+        const senha       = document.getElementById("f-senha").value;
+        const confirmacao = document.getElementById("f-confirmacao").value;
+        const ativo       = document.getElementById("f-ativo").checked;
+
+        // Validação
+        if (!nome) return erroC("f-nome", "Informe o nome do usuário.");
+        if (!usuario) return erroC("f-usuario", "Informe o login.");
+        if (!/^[a-zA-Z0-9._]+$/.test(usuario)) return erroC("f-usuario", "Login inválido. Use letras, números e ponto.");
+        if (!perfil) return mostrarErroModal("Selecione um perfil.");
+
+        const criando = editandoIndex === null;
+
+        if (criando || senha) {
+          if (!senha) return erroC("f-senha", "Informe a senha.");
+          if (senha.length < 6) return erroC("f-senha", "A senha precisa ter pelo menos 6 caracteres.");
+          if (senha !== confirmacao) return erroC("f-confirmacao", "As senhas não conferem.");
+        }
+
+        const usuarios = carregarUsuarios();
+
+        // Verificar duplicata de login
+        const duplicado = usuarios.findIndex((u, i) => u.usuario === usuario && i !== editandoIndex);
+        if (duplicado !== -1) return erroC("f-usuario", "Este login já está em uso.");
+
+        if (criando) {
+          usuarios.push({ nome, usuario, perfil, senha, ativo: true });
+          salvarUsuarios(usuarios);
+          fecharModal();
+          renderTabela();
+          toast("Usuário criado com sucesso.", "sucesso");
+        } else {
+          const u = usuarios[editandoIndex];
+          u.nome = nome;
+          u.usuario = usuario;
+          u.perfil = perfil;
+          u.ativo = ativo;
+          if (senha) u.senha = senha;
+          salvarUsuarios(usuarios);
+          fecharModal();
+          renderTabela();
+          toast("Usuário atualizado com sucesso.", "sucesso");
+        }
+      }
+
+      function erroC(id, msg) {
+        document.getElementById(id).classList.add("campo-erro");
+        mostrarErroModal(msg);
+        document.getElementById(id).focus();
+      }
+
+      // ── Excluir ───────────────────────────────────────────
+      let excluirIndex = null;
+
+      function confirmarExcluir(i) {
+        const usuarios = carregarUsuarios();
+        excluirIndex = i;
+        document.getElementById("confirm-msg").textContent =
+          `Deseja excluir o usuário "${usuarios[i].nome}"? Esta ação não pode ser desfeita.`;
+        document.getElementById("confirm-overlay").classList.add("aberto");
+        document.getElementById("btn-confirmar-excluir").onclick = excluir;
+      }
+
+      function fecharConfirm() {
+        document.getElementById("confirm-overlay").classList.remove("aberto");
+        excluirIndex = null;
+      }
+
+      function excluir() {
+        if (excluirIndex === null) return;
+        const usuarios = carregarUsuarios();
+        usuarios.splice(excluirIndex, 1);
+        salvarUsuarios(usuarios);
+        fecharConfirm();
+        renderTabela();
+        toast("Usuário excluído.", "sucesso");
+      }
+
+      // ── Toast ─────────────────────────────────────────────
+      let toastTimer = null;
+      function toast(msg, tipo = "sucesso") {
+        const el = document.getElementById("toast");
+        el.textContent = msg;
+        el.className = `toast ${tipo} visivel`;
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => { el.classList.remove("visivel"); }, 3000);
+      }
+
+      // ── Inicializar ───────────────────────────────────────
+      renderTabela();
+
+      // ESC fecha modais
+      document.addEventListener("keydown", e => {
+        if (e.key === "Escape") {
+          fecharModal();
+          fecharConfirm();
+        }
+      });
+
+      // Limpar erro ao digitar
+      ["f-nome","f-usuario","f-senha","f-confirmacao"].forEach(id => {
+        document.getElementById(id).addEventListener("input", () => {
+          document.getElementById(id).classList.remove("campo-erro");
+          ocultarErroModal();
+        });
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gerenciador de Atualizações e-SUS PEC — Login | PMSL</title>
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/static/css/style.css" />
+  </head>
+  <body>
+    <div class="login-wrap">
+      <div class="login-logo">
+        <div class="login-logo-icon">
+          <svg
+            width="28"
+            height="28"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#fff"
+            stroke-width="2.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+          </svg>
+        </div>
+        <div class="login-logo-title">Gerenciador de Atualizações e-SUS</div>
+        <div class="login-logo-sub">Prefeitura Municipal de Santa Luzia</div>
+      </div>
+
+      <div class="login-card">
+        <h2>Acesse sua conta</h2>
+
+        <div class="login-erro" id="login-erro">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span id="login-erro-msg">Usuário ou senha inválidos.</span>
+        </div>
+
+        <div class="login-fg">
+          <label for="username">Usuário</label>
+          <input
+            type="text"
+            id="username"
+            placeholder="administrador"
+            autocomplete="username"
+            autofocus
+          />
+        </div>
+
+        <div class="login-fg">
+          <label for="senha">Senha</label>
+          <div class="pwd-wrap">
+            <input
+              type="password"
+              id="senha"
+              placeholder="••••••••"
+              autocomplete="current-password"
+            />
+            <button type="button" class="pwd-eye" id="toggle-pwd">
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <button class="login-btn" id="btn-login">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+            <polyline points="10 17 15 12 10 7" />
+            <line x1="15" y1="12" x2="3" y2="12" />
+          </svg>
+          Entrar
+        </button>
+      </div>
+    </div>
+
+    <!-- Rodapé igual ao do index.html -->
+    <footer class="app-footer">
+      <div class="footer-inner">
+        <img
+          src="/static/img/logo.png"
+          alt="Logo PMSL"
+          class="footer-logo-img"
+        />
+        <span class="footer-dev">Desenvolvido pela</span>
+        <span class="footer-sep">·</span>
+        <span class="footer-secretaria"
+          >Secretaria Municipal de Ciência, Planejamento, Tecnologia e
+          Inovação</span
+        >
+      </div>
+    </footer>
+
+    <script src="/static/js/login.js"></script>
+  </body>
+</html>
