@@ -150,7 +150,7 @@
             <div style="margin: 1rem 0; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 0.8rem 1rem;">
               <div style="font-size: 0.8rem; font-weight: 700; color: #92400e; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.4rem;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                Modo Autônomo (Executar Automaticamente)
+                Modo Autônomo
               </div>
               <div style="font-size: 0.78rem; color: #78350f; margin-bottom: 0.6rem; line-height: 1.5;">
                 Marque a caixa para executar sem confirmações em cada etapa, ou deixe desmarcada para confirmar cada ação.
@@ -581,7 +581,7 @@
             <div style="margin:.5rem 0 1rem;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:.8rem 1rem;">
               <div style="font-size:.8rem;font-weight:700;color:#92400e;margin-bottom:.35rem;display:flex;align-items:center;gap:.4rem;">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                Modo Autônomo (Executar Automaticamente)
+                Modo Autônomo
               </div>
               <div style="font-size:.78rem;color:#78350f;margin-bottom:.5rem;line-height:1.5;">Execute sem confirmações em cada etapa ou confirme manualmente.</div>
               <div style="display:flex;align-items:center;gap:.5rem;">
@@ -747,6 +747,8 @@
             </div>
           </div>
 
+          <br>
+
           <!-- Servidor de Banco -->
           <div class="form-sec">
             <div class="sec-title">
@@ -774,23 +776,6 @@
             </div>
             <div class="form-row">
               <div class="fg"><label>Nome do banco de dados *</label><input type="text" id="f-bd-nome" placeholder="esushomologacao" autocomplete="off" /><span class="hint">Nome do banco PostgreSQL do e-SUS neste ambiente</span></div>
-            <div class="form-row">
-              <div class="fg">
-                <label>Usuário PostgreSQL *</label>
-                <input type="text" id="f-pg-usuario" value="postgres" autocomplete="off" />
-                <span class="hint">Usuário do banco de dados (diferente do usuário SSH)</span>
-              </div>
-              <div class="fg">
-                <label>Senha PostgreSQL *</label>
-                <div class="pwd-wrap">
-                  <input type="password" id="f-pg-senha" placeholder="••••••••" autocomplete="new-password" />
-                  <button type="button" class="pwd-eye" onclick="toggleSenha('f-pg-senha',this)" tabindex="-1">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  </button>
-                </div>
-                <span class="hint">Senha do usuário PostgreSQL usado pelo e-SUS</span>
-              </div>
-            </div>
               <div class="fg"><label>Container Docker do PostgreSQL</label><input type="text" id="f-bd-container" value="postgresql-db-1" autocomplete="off" /><span class="hint">Nome do container onde o <code>pg_dump</code> é executado. Use <code>docker ps --format '{{ '{{' }}.Names{{ '}}' }}'</code> para listar.</span></div>
               <div class="fg">
                 <label>Hostname interno do banco (rede Docker)</label>

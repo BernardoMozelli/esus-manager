@@ -1,13 +1,18 @@
 // ── Estado ──────────────────────────────────────────────────────────────────
-let ambientes = [];
-let versoes = [];
-let versoesFilt = [];
-let ambienteSel = null;
-let versaoSel = null;
-let sessionId = null;
-let etapaAtual = 0;
-let editandoId = null;
-let executando = false;
+// Variáveis globais compartilhadas entre todos os módulos JS
+window.ambientes = [];
+window.versoes   = [];
+let versoesFilt  = [];
+let ambienteSel  = null;
+let versaoSel    = null;
+let sessionId    = null;
+let etapaAtual   = 0;
+let editandoId   = null;
+let executando   = false;
+
+// Aliases locais para compatibilidade
+let ambientes = window.ambientes;
+let versoes   = window.versoes;
 
 const ETAPAS = [
   {
@@ -255,6 +260,7 @@ function setStatus(msg, cls) {
 async function carregarAmbientes() {
   const res = await fetch("/api/ambientes");
   ambientes = await res.json();
+  window.ambientes = ambientes;
   renderAmbLista();
   renderAmbSelectList();
 }
@@ -559,6 +565,12 @@ function fecharModal() {
   editandoId = null;
 }
 
+function toggleAppContainerField() {
+  const show = document.getElementById("f-app-docker").checked;
+  const wrap = document.getElementById("f-app-container-wrap");
+  if (wrap) wrap.style.display = show ? "flex" : "none";
+}
+
 function limparModal() {
   ["f-nome", "f-app-host", "f-app-usuario", "f-app-senha", "f-bd-host", "f-bd-usuario", "f-bd-senha", "f-bd-nome"]
     .forEach((id) => (document.getElementById(id).value = ""));
@@ -567,8 +579,16 @@ function limparModal() {
   document.getElementById("f-app-dir").value = "/root/e-SUS";
   document.getElementById("f-app-service").value = "e-SUS-PEC";
   document.getElementById("f-app-docker").checked = false;
+  document.getElementById("f-app-container").value = "";
   document.getElementById("f-bd-porta-ssh").value = "22";
   document.getElementById("f-bd-container").value = "postgresql-db-1";
+  document.getElementById("f-bd-host-interno").value = "";
+  document.getElementById("f-pg-usuario").value = "postgres";
+  document.getElementById("f-pg-senha").value = "";
+  document.getElementById("f-bd-host-interno").value = "";
+  document.getElementById("f-pg-usuario").value = "postgres";
+  document.getElementById("f-pg-senha").value = "";
+  toggleAppContainerField();
 }
 
 async function editarAmbiente(id) {
@@ -583,12 +603,20 @@ async function editarAmbiente(id) {
   document.getElementById("f-app-dir").value = d.srv_app?.esus_dir || "/root/e-SUS";
   document.getElementById("f-app-service").value = d.srv_app?.service || "e-SUS-PEC";
   document.getElementById("f-app-docker").checked = !!d.srv_app?.usa_docker;
+  document.getElementById("f-app-container").value = d.srv_app?.container || "";
+  toggleAppContainerField();
   document.getElementById("f-bd-host").value = d.srv_bd?.host || "";
   document.getElementById("f-bd-porta-ssh").value = d.srv_bd?.porta || 22;
   document.getElementById("f-bd-usuario").value = d.srv_bd?.usuario || "";
   document.getElementById("f-bd-senha").value = d.srv_bd?.senha || "";
   document.getElementById("f-bd-nome").value = d.srv_bd?.db_name || "";
   document.getElementById("f-bd-container").value = d.srv_bd?.container || "postgresql-db-1";
+  document.getElementById("f-bd-host-interno").value = d.srv_bd?.db_host_interno || "";
+  document.getElementById("f-pg-usuario").value = d.srv_bd?.pg_usuario || "postgres";
+  document.getElementById("f-pg-senha").value = d.srv_bd?.pg_senha || "";
+  document.getElementById("f-bd-host-interno").value = d.srv_bd?.db_host_interno || "";
+  document.getElementById("f-pg-usuario").value = d.srv_bd?.pg_usuario || "postgres";
+  document.getElementById("f-pg-senha").value = d.srv_bd?.pg_senha || "";
   abrirModal(id);
 }
 
@@ -602,6 +630,12 @@ async function salvarAmbiente() {
     Swal.fire({ title: "Campos obrigatórios", text: "Preencha os endereços dos servidores de aplicação e banco.", icon: "warning" });
     return;
   }
+  const usaDocker = document.getElementById("f-app-docker").checked;
+  const containerVal = document.getElementById("f-app-container").value.trim();
+  if (usaDocker && !containerVal) {
+    Swal.fire({ title: "Campo obrigatório", text: "Informe o nome do container Docker do e-SUS. Execute: docker ps --format '{{.Names}}' no servidor para ver o nome correto.", icon: "warning" });
+    return;
+  }
   const p = {
     nome,
     tipo: document.getElementById("f-tipo").value,
@@ -612,12 +646,19 @@ async function salvarAmbiente() {
     app_dir: document.getElementById("f-app-dir").value.trim() || "/root/e-SUS",
     app_service: document.getElementById("f-app-service").value.trim() || "e-SUS-PEC",
     app_docker: document.getElementById("f-app-docker").checked,
+    app_container: document.getElementById("f-app-container").value.trim(),
     bd_host: document.getElementById("f-bd-host").value.trim(),
     bd_porta: parseInt(document.getElementById("f-bd-porta-ssh").value) || 22,
     bd_usuario: document.getElementById("f-bd-usuario").value.trim(),
     bd_senha: document.getElementById("f-bd-senha").value,
     bd_nome: document.getElementById("f-bd-nome").value.trim(),
     bd_container: document.getElementById("f-bd-container").value.trim() || "postgresql-db-1",
+    bd_host_interno: document.getElementById("f-bd-host-interno").value.trim(),
+    pg_usuario: document.getElementById("f-pg-usuario").value.trim() || "postgres",
+    pg_senha: document.getElementById("f-pg-senha").value,
+    bd_host_interno: document.getElementById("f-bd-host-interno").value.trim(),
+    pg_usuario: document.getElementById("f-pg-usuario").value.trim() || "postgres",
+    pg_senha: document.getElementById("f-pg-senha").value,
   };
   const r = await fetch(editandoId ? `/api/ambientes/${editandoId}` : "/api/ambientes", {
     method: editandoId ? "PUT" : "POST",

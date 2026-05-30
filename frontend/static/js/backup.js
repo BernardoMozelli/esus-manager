@@ -1,4 +1,14 @@
-// ── Backup ────────────────────────────────────────────────────────────────────
+// ── Backup
+// Acessa getAmbientes() do escopo global (definido em main.js)
+function getAmbientes() { return window.ambientes || []; }
+
+function abrirHistoricoBackup() {
+  carregarHistoricoBackup();
+  document.getElementById("backup-historico-overlay").classList.add("open");
+}
+function fecharHistoricoBackup() {
+  document.getElementById("backup-historico-overlay").classList.remove("open");
+}
 let backupAmbienteSel = null;
 let backupExecutando  = false;
 
@@ -8,7 +18,6 @@ const BACKUP_ETAPAS = [
   { n: 3, titulo: "Registrar backup", ajuda: "O arquivo gerado é verificado e o registro é salvo no histórico do sistema." },
 ];
 
-// ── Nav override ──────────────────────────────────────────────────────────────
 const _irBackupBase = window.ir;
 window.ir = function(telaId, btn) {
   _irBackupBase(telaId, btn);
@@ -19,7 +28,6 @@ window.ir = function(telaId, btn) {
   }
 };
 
-// ── Stepper ───────────────────────────────────────────────────────────────────
 function initBackupStepper() {
   const el = document.getElementById("backup-stepper");
   if (!el) return;
@@ -41,16 +49,15 @@ function setBStep(n, status, sub) {
   if (sub) document.getElementById(`bstep-sub-${n}`).textContent = sub;
 }
 
-// ── Ambiente list ─────────────────────────────────────────────────────────────
 function renderBackupAmbList() {
   const el = document.getElementById("backup-amb-list");
   if (!el) return;
-  if (!ambientes.length) {
+  if (!getAmbientes().length) {
     el.innerHTML = `<div class="empty-amb">Nenhum ambiente cadastrado.<br>
-      <a href="#" onclick="ir('tela-ambientes',document.getElementById('nav-ambientes'))">Cadastrar agora</a></div>`;
+      <a href="#" onclick="ir('tela-getAmbientes()',document.getElementById('nav-getAmbientes()'))">Cadastrar agora</a></div>`;
     return;
   }
-  el.innerHTML = ambientes.map(a => `
+  el.innerHTML = getAmbientes().map(a => `
     <div class="amb-opt ${backupAmbienteSel === a.id ? "sel" : ""}" onclick="selecionarBackupAmb(${a.id})">
       <svg class="ao-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
@@ -72,7 +79,6 @@ function selecionarBackupAmb(id) {
   carregarHistoricoBackup();
 }
 
-// ── Log helpers ───────────────────────────────────────────────────────────────
 function bkpLog(msg, tipo = "info") {
   const body = document.getElementById("backup-log-body");
   if (!body) return;
@@ -90,11 +96,10 @@ function bkpStatus(msg, cls) {
   bar.innerHTML = `<span class="${cls}">${cls === "s-run" ? '<span class="dot"></span>' : ""}${msg}</span>`;
 }
 
-// ── Iniciar backup ────────────────────────────────────────────────────────────
 async function iniciarBackup() {
   if (!backupAmbienteSel || backupExecutando) return;
 
-  const amb = ambientes.find(a => a.id === backupAmbienteSel);
+  const amb = getAmbientes().find(a => a.id === backupAmbienteSel);
   const confirmado = await Swal.fire({
     title: "Confirmar Backup",
     html: `Iniciar backup do banco <strong>${esc(amb?.db_name || amb?.nome || "")}</strong> no ambiente <strong>${esc(amb?.nome || "")}</strong>?`,
@@ -181,7 +186,6 @@ async function iniciarBackup() {
   };
 }
 
-// ── Histórico ─────────────────────────────────────────────────────────────────
 async function carregarHistoricoBackup() {
   const tbody = document.getElementById("backup-historico-tbody");
   if (!tbody) return;
@@ -249,5 +253,103 @@ async function deletarBackup(arquivo) {
     Swal.fire({ title: "Erro", text: d.erro, icon: "error" });
     return;
   }
+  await carregarHistoricoBackup();
+}
+
+function onLimpezaPol() {
+  const pol = document.querySelector('input[name="limpeza-pol"]:checked')?.value;
+  const labels = {
+    manter_ultimos:   "pol-label-manter",
+    mais_antigos_que: "pol-label-dias",
+    todos:            "pol-label-todos",
+  };
+  Object.values(labels).forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.borderColor = "#e2e8f0";
+      el.style.background  = "#fafafa";
+    }
+  });
+  if (pol && labels[pol]) {
+    const sel = document.getElementById(labels[pol]);
+    if (sel) {
+      sel.style.borderColor = "#0052a3";
+      sel.style.background  = "#eff6ff";
+    }
+  }
+}
+
+async function executarLimpeza() {
+  const pol = document.querySelector('input[name="limpeza-pol"]:checked')?.value;
+  if (!pol) return;
+
+  const valor = pol === "manter_ultimos"
+    ? parseInt(document.getElementById("limpeza-n").value) || 3
+    : pol === "mais_antigos_que"
+    ? parseInt(document.getElementById("limpeza-dias").value) || 30
+    : 1;
+
+  const descricoes = {
+    manter_ultimos:   `manter os ${valor} mais recentes por banco`,
+    mais_antigos_que: `remover backups com mais de ${valor} dias`,
+    todos:            "remover todos exceto o mais recente de cada banco",
+  };
+
+  const confirmado = await Swal.fire({
+    title: "Confirmar limpeza",
+    html: `Política: <strong>${descricoes[pol]}</strong><br><br>
+           <span style="font-size:.85rem;color:#dc2626;">Os arquivos removidos não poderão ser recuperados.</span>`,
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText: "Sim, limpar",
+    cancelButtonText: "Cancelar",
+    confirmButtonColor: "#dc2626",
+  });
+  if (!confirmado.isConfirmed) return;
+
+  const btn = document.getElementById("btn-limpeza");
+  btn.disabled = true;
+  btn.innerHTML = `<svg class="spin" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Limpando...`;
+
+  const r = await fetch("/api/backup/limpar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ politica: pol, valor }),
+  });
+  const d = await r.json();
+
+  btn.disabled = false;
+  btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg> Executar Limpeza`;
+
+  const resEl = document.getElementById("limpeza-resultado");
+  if (!r.ok) {
+    resEl.style.display = "block";
+    resEl.style.background = "#fef2f2";
+    resEl.style.border = "1px solid #fecaca";
+    resEl.style.color = "#dc2626";
+    resEl.innerHTML = `❌ Erro: ${esc(d.erro || "Falha na limpeza.")}`;
+    return;
+  }
+
+  const totalMb = (d.total_kb / 1024).toFixed(1);
+  const errosHtml = d.erros.length
+    ? `<br><span style="color:#f59e0b;">⚠ ${d.erros.length} arquivo(s) com erro.</span>`
+    : "";
+
+  resEl.style.display = "block";
+  resEl.style.background = "#f0fdf4";
+  resEl.style.border = "1px solid #bbf7d0";
+  resEl.style.borderRadius = "8px";
+  resEl.style.padding = ".75rem 1rem";
+  resEl.style.fontSize = ".82rem";
+  resEl.style.color = "#15803d";
+
+  if (d.removidos.length === 0) {
+    resEl.innerHTML = `✓ Nenhum arquivo para remover com esta política.${errosHtml}`;
+  } else {
+    resEl.innerHTML = `✓ ${d.removidos.length} arquivo(s) removido(s) — ${totalMb} MB liberados.${errosHtml}`;
+  }
+
+  // Atualiza histórico
   await carregarHistoricoBackup();
 }
