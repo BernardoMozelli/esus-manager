@@ -367,8 +367,78 @@ _sync_status = {"rodando": False, "ultima_sync": None, "erro": None}
 # Script Python que roda dentro do servidor remoto via SSH
 # Acessa o site do e-SUS (sem bloqueio de IP), lista versões e captura URLs
 # Script de sync carregado do arquivo sync_script.py
-with open(os.path.join(os.path.dirname(__file__), "sync_script.py")) as _f:
-    SCRIPT_SYNC = _f.read()
+# Script executado remotamente via SSH para descobrir versões do e-SUS.
+# Usa requests + bs4 (sem Playwright) — instala dependências se necessário.
+SCRIPT_SYNC = r"""
+import sys, subprocess, json, re
+
+def pip_install(pkg):
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", pkg, "-q", "--break-system-packages"],
+        timeout=120
+    )
+
+for pkg, imp in [("requests", "requests"), ("beautifulsoup4", "bs4")]:
+    try:
+        __import__(imp)
+    except ImportError:
+        pip_install(pkg)
+
+import requests
+from bs4 import BeautifulSoup
+
+BLOG_URL = "https://sisaps.saude.gov.br/sistemas/esusaps/blog/"
+JAR_BASE = "https://arquivos.esusaps.ufsc.br/PEC"
+HASH_CONHECIDO = "01385542bd35ba1e"
+debug = []
+
+def get_versoes():
+    resultado = []
+    try:
+        r = requests.get(BLOG_URL, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+        debug.append(f"blog HTTP {r.status_code}, html len={len(r.text)}")
+    except Exception as e:
+        return {"erro_geral": f"Falha ao acessar blog: {e}", "debug": debug, "resultado": []}
+
+    versoes_encontradas = set()
+    for tag in soup.find_all(["a", "p", "li", "h1", "h2", "h3", "h4", "span", "div"]):
+        texto = tag.get_text(" ", strip=True)
+        for m in re.finditer(r"\b(\d+\.\d+\.\d+)\b", texto):
+            v = m.group(1)
+            parts = v.split(".")
+            if len(parts) == 3 and int(parts[0]) >= 5:
+                versoes_encontradas.add(v)
+        href = tag.get("href", "")
+        m2 = re.search(r"eSUS-AB-PEC-([\d.]+)-Linux", href)
+        if m2:
+            versoes_encontradas.add(m2.group(1))
+
+    debug.append(f"versoes encontradas: {sorted(versoes_encontradas)}")
+
+    for v in sorted(versoes_encontradas, reverse=True):
+        nome_linux   = f"eSUS-AB-PEC-{v}-Linux64.jar"
+        nome_windows = f"eSUS-AB-PEC-{v}-Windows64.exe"
+        url_linux = url_windows = None
+        for base in [f"{JAR_BASE}/{HASH_CONHECIDO}/{v}", f"{JAR_BASE}/{v}"]:
+            try:
+                resp = requests.head(
+                    f"{base}/{nome_linux}", timeout=10,
+                    headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True
+                )
+                if resp.status_code == 200:
+                    url_linux   = f"{base}/{nome_linux}"
+                    url_windows = f"{base}/{nome_windows}"
+                    break
+            except Exception:
+                pass
+        resultado.append({"versao": v, "url_linux": url_linux, "url_windows": url_windows})
+
+    return {"resultado": resultado, "debug": debug}
+
+print(json.dumps(get_versoes()))
+"""
 
 
 def _get_ssh_para_sync():
@@ -592,57 +662,87 @@ def buscar_versoes_disponiveis():
 # ─── Thread de atualização ────────────────────────────────────────────────────
 
 def restart_servico(sid, ssh, app_s, container_conhecido=None):
-    """Reinicia o e-SUS PEC.
-    Se SSH está dentro de um container: mata o processo Java e o entrypoint reinicia.
-    Se SSH está no host: usa docker restart ou systemctl.
+    """Reinicia o e-SUS PEC cobrindo todos os cenários:
+      A) SSH dentro do container — inicia standalone.sh via nohup (sem pkill)
+      B) SSH no host com Docker — docker restart
+      C) SSH no host bare metal — systemctl / service / standalone.sh direto
     """
-    service = app_s.get("service", "e-SUS-PEC")
+    service  = app_s.get("service", "e-SUS-PEC")
+    esus_dir = app_s.get("esus_dir", "/opt/e-SUS")
+    standalone = "{}/webserver/standalone.sh".format(esus_dir)
     log(sid, "Reiniciando serviço do e-SUS PEC...", "cmd")
 
-    # Detecta se estamos dentro de um container (sem docker disponível)
-    _, docker_check, _, _ = _ssh_exec_raw(ssh, "which docker 2>/dev/null || echo NO_DOCKER", timeout=5)
+    # Detecta se SSH está dentro de um container (sem docker no PATH)
+    _, docker_check, _, _ = _ssh_exec_raw(ssh,
+        "which docker 2>/dev/null || echo NO_DOCKER", timeout=5)
     dentro_container = "NO_DOCKER" in docker_check or not docker_check.strip()
 
     if dentro_container:
-        # Dentro do container: mata o Java e o entrypoint (standalone.sh) reinicia
-        log(sid, "  Modo container: encerrando processo Java para reinício automático...", "cmd")
-        ssh_exec(sid, ssh, "pkill -f 'java' 2>/dev/null 2>/dev/null || pkill -9 -f standalone 2>/dev/null || true", timeout=15)
-        log(sid, "  Processo encerrado — o container reiniciará automaticamente.", "ok")
-        time.sleep(5)
+        # ── Cenário A: SSH dentro do container ──────────────────────────────
+        # NÃO usa pkill — isso derruba o sshd e o container reinicia do zero
+        # (voltando para tail -f /dev/null se não houver standalone.sh ainda).
+        # Em vez disso, inicia o standalone.sh via nohup diretamente.
+        _, sh_check, _, _ = _ssh_exec_raw(ssh,
+            "test -f '{}' && echo EXISTS || echo MISSING".format(standalone), timeout=5)
+
+        if "EXISTS" in sh_check:
+            # Para o Java atual se estiver rodando (graciosamente)
+            ssh_exec(sid, ssh,
+                "pkill -TERM -f 'pec-bundle' 2>/dev/null || true",
+                timeout=10)
+            time.sleep(2)
+            # Inicia standalone.sh via nohup — desacoplado da sessão SSH
+            ssh_exec(sid, ssh,
+                "nohup sh '{}' > /tmp/esus_start.log 2>&1 &".format(standalone),
+                timeout=5)
+            log(sid, "  e-SUS iniciando via standalone.sh (pode levar 2-3 min).", "ok")
+        else:
+            log(sid, "  standalone.sh não encontrado — e-SUS não instalado.", "warn")
         return
 
-    # No host: tenta docker restart primeiro
-    if container_conhecido:
-        _, _, rc = ssh_exec(sid, ssh, "docker restart '{}'".format(container_conhecido), timeout=90)
+    # ── Cenário B: SSH no host com Docker ───────────────────────────────────
+    container_alvo = container_conhecido
+    if not container_alvo:
+        for nome in [service, "e-SUS-PEC", "esus-pec", "esus_pec", "esus-app", "esus_app"]:
+            _, out, _, _ = _ssh_exec_raw(ssh,
+                "docker ps --filter name={} --format '{{{{.Names}}}}' 2>/dev/null | head -1".format(nome),
+                timeout=10)
+            if out.strip():
+                container_alvo = out.strip()
+                break
+
+    if container_alvo:
+        _, _, rc = ssh_exec(sid, ssh,
+            "docker restart '{}'".format(container_alvo), timeout=90)
         if rc == 0:
-            log(sid, "  Container '{}' reiniciado.".format(container_conhecido), "ok")
+            log(sid, "  Container '{}' reiniciado.".format(container_alvo), "ok")
             time.sleep(8)
             return
 
-    # Descobre container pelo nome do serviço
-    for nome in [service, "e-SUS-PEC", "esus-pec", "esus_pec"]:
-        _, out, _, _ = _ssh_exec_raw(ssh,
-            "docker ps --filter name={} --format '{{{{.Names}}}}' 2>/dev/null | head -1".format(nome),
-            timeout=10
-        )
-        nome_real = out.strip()
-        if nome_real:
-            _, _, rc2 = ssh_exec(sid, ssh, "docker restart '{}'".format(nome_real), timeout=90)
-            if rc2 == 0:
-                log(sid, "  Container '{}' reiniciado.".format(nome_real), "ok")
-                time.sleep(8)
-                return
-
-    # Fallback: systemctl / service
-    _, _, rc3 = ssh_exec(sid, ssh, "systemctl start {}".format(service), timeout=30)
-    if rc3 == 0:
+    # ── Cenário C: bare metal — systemctl / service / standalone direto ──────
+    _, _, rc_ctl = ssh_exec(sid, ssh,
+        "systemctl start {}".format(service), timeout=30)
+    if rc_ctl == 0:
         log(sid, "  Serviço '{}' iniciado via systemctl.".format(service), "ok")
         return
-    _, _, rc4 = ssh_exec(sid, ssh, "service {} start".format(service), timeout=30)
-    if rc4 == 0:
+
+    _, _, rc_svc = ssh_exec(sid, ssh,
+        "service {} start".format(service), timeout=30)
+    if rc_svc == 0:
         log(sid, "  Serviço '{}' iniciado via service.".format(service), "ok")
         return
-    log(sid, "  Aviso: não foi possível reiniciar automaticamente. Reinicie o container manualmente.", "warn")
+
+    # Último recurso: standalone.sh direto
+    _, sh_check2, _, _ = _ssh_exec_raw(ssh,
+        "test -f '{}' && echo EXISTS || echo MISSING".format(standalone), timeout=5)
+    if "EXISTS" in sh_check2:
+        ssh_exec(sid, ssh,
+            "nohup sh '{}' > /tmp/esus_start.log 2>&1 &".format(standalone),
+            timeout=5)
+        log(sid, "  standalone.sh iniciado via nohup.", "ok")
+        return
+
+    log(sid, "  ⚠ Não foi possível reiniciar automaticamente.", "warn")
 
 
 def executar_atualizacao(sid, amb, versao, url_manual=None):
@@ -1570,10 +1670,14 @@ def executar_downgrade(sid, amb, versao, url_download):
             falha(f"Falha ao reconectar SSH: {e}")
             return
 
-        # ── ETAPA 3: Desinstalador nativo ──────────────────────────────────
-        etapa(3, "Executar desinstalador nativo (limpar travas de versão)")
+        # ── ETAPA 3: Desinstalação via desinstalador nativo ─────────────────
+        # Copia o JRE para /tmp antes de rodar o desinstalador, assim o processo
+        # Java não se mata ao remover o próprio JRE durante a desinstalação.
+        # O desinstalador remove tudo: jre/, webserver/, pec.config, ZeroG.
+        # Fallback: limpeza manual caso desinstalador/JRE não existam.
+
+        etapa(3, "Desinstalar versão atual")
         log(sid, f"  Diretório : {app_s['esus_dir']}")
-        log(sid, "  O desinstalador remove binários e registros do Java.")
         log(sid, "  ⚠ O banco de dados NÃO será apagado.", "warn")
 
         if not aguardar(sid):
@@ -1583,80 +1687,160 @@ def executar_downgrade(sid, amb, versao, url_download):
 
         container_app  = app_s.get("container", "").strip()
         usa_docker_app = bool(app_s.get("usa_docker", 0))
+        esus_dir       = app_s["esus_dir"]
 
-        # Busca o desinstalador — tenta no container se usa_docker, senão direto via SSH
-        # SSH já está dentro do container (ou host direto) — executa sem docker exec
         def run_cmd(cmd, timeout=30):
             return ssh_exec(sid, ssh_app, cmd, timeout=timeout)
 
-        def find_file(pattern, maxdepth=2):
-            """Encontra arquivo no servidor sem logar o resultado no SSE."""
-            find_cmd = "find '{}' -maxdepth {} -name '{}' -type f 2>/dev/null | head -1".format(
-                app_s["esus_dir"], maxdepth, pattern
-            )
-            if usa_docker_app:
-                raw_cmd = "docker exec '{}' {}".format(container_app, find_cmd)
-            else:
-                raw_cmd = find_cmd
-            _, stdout, stderr, rc = _ssh_exec_raw(ssh_app, raw_cmd, timeout=10)
-            return stdout.strip() if rc == 0 else ""
-
-        # Diagnóstico — lista o que tem na pasta para confirmar o nome real
+        # Verifica presença do desinstalador e JRE
         _, ls_out, _, _ = _ssh_exec_raw(ssh_app,
-            "docker exec '{}' ls -1 '{}' 2>/dev/null || ls -1 '{}' 2>/dev/null".format(
-                container_app, app_s["esus_dir"], app_s["esus_dir"]),
-            timeout=10
-        )
-        log(sid, "  Arquivos na pasta: {}".format(", ".join(
-            [f for f in ls_out.strip().splitlines() if f.strip()][:10]
-        )), "cmd")
+            "ls -1 '{d}/' 2>/dev/null".format(d=esus_dir), timeout=10)
+        arquivos = [l.strip() for l in ls_out.strip().splitlines() if l.strip()]
+        log(sid, "  Arquivos na pasta: {}".format(", ".join(arquivos[:8]) or "(vazio)"), "cmd")
 
-        # Verifica existência pelo path direto (mais confiável que find dentro de container)
-        # SSH conecta diretamente no container (ou host) — test -f direto, sem docker exec
-        desinst_path = "{}/desinstalador.jar".format(app_s["esus_dir"])
-        chk_cmd = "test -f '{}' && echo EXISTS || echo MISSING".format(desinst_path)
-        _, chk_out, chk_err, chk_rc = _ssh_exec_raw(ssh_app, chk_cmd, timeout=10)
-        log(sid, "  Verificando: {} → {}".format(desinst_path, chk_out.strip() or chk_err.strip()[:40]), "cmd")
-        desinst_jar = desinst_path if "EXISTS" in chk_out else None
-        log(sid, "  Desinstalador detectado: {}".format(desinst_jar or "nenhum"), "cmd")
+        tem_desinstalador = any("desinstalador" in a for a in arquivos)
+        _, jre_check, _, _ = _ssh_exec_raw(ssh_app,
+            "test -d '{d}/jre' && echo YES || echo NO".format(d=esus_dir), timeout=5)
+        tem_jre = "YES" in jre_check
 
-        if desinst_jar:
-            log(sid, f"  Desinstalador encontrado: {desinst_jar}", "cmd")
-            # Aplica o mesmo patch de /bin/ps para o desinstalador (também verifica systemd)
+        if tem_desinstalador and tem_jre:
+            # Copia JRE para /tmp — evita auto-destruição durante desinstalação
+            log(sid, "  Copiando JRE para /tmp...", "cmd")
             ssh_exec(sid, ssh_app,
-                "cp /bin/ps /bin/ps.real 2>/dev/null || true && "
-                "printf '#!/bin/bash\nif echo \"$@\" | grep -q \"comm 1\"; then\n  echo systemd\nelse\n  /bin/ps.real \"$@\"\nfi\n' > /bin/ps_wrapper && "
-                "chmod +x /bin/ps_wrapper && "
-                "mount --bind /bin/ps_wrapper /bin/ps 2>/dev/null || cp /bin/ps_wrapper /bin/ps",
+                "rm -rf /tmp/_esus_jre_bkp 2>/dev/null; "
+                "cp -r '{d}/jre' /tmp/_esus_jre_bkp 2>/dev/null".format(d=esus_dir),
+                timeout=120
+            )
+
+            # Descobre o binário java dentro do JRE copiado
+            _, java_path, _, _ = _ssh_exec_raw(ssh_app,
+                "find /tmp/_esus_jre_bkp -name 'java' -type f 2>/dev/null | head -1",
+                timeout=10)
+            java_bin = java_path.strip() or "/tmp/_esus_jre_bkp/current/bin/java"
+            log(sid, "  Java: {}".format(java_bin), "cmd")
+
+            # Aplica patch /bin/ps (via base64 para evitar quoting aninhado)
+            import base64 as _b64ps
+            _ps_script = '#!/bin/bash\nif echo "$@" | grep -q "comm 1"; then\n  echo systemd\nelse\n  /bin/ps.real "$@"\nfi\n'
+            _ps_b64 = _b64ps.b64encode(_ps_script.encode()).decode()
+            ssh_exec(sid, ssh_app,
+                "cp /bin/ps /bin/ps.real 2>/dev/null || true; "
+                "echo '{}' | base64 -d > /bin/ps_wrap; ".format(_ps_b64) +
+                "chmod +x /bin/ps_wrap; "
+                "mount --bind /bin/ps_wrap /bin/ps 2>/dev/null || cp /bin/ps_wrap /bin/ps",
                 timeout=10
             )
-            cmd_desinst = "cd '{}' && printf 'y\ny\ny\n' | /usr/bin/java -jar '{}' -console 2>&1 || true".format(
-                app_s["esus_dir"], desinst_jar
-            )
-            _, _, code_d = run_cmd(cmd_desinst, timeout=300)
-            # Restaura ps
+
+
+            # Executa desinstalador com o JRE copiado
+            log(sid, "  Executando desinstalador nativo...", "cmd")
+            cmd_desinst = "cd '{d}' && printf 'S\nS\nS\n' | '{java}' -jar '{d}/desinstalador.jar' -console 2>&1".format(
+                d=esus_dir, java=java_bin)
+            _, out_desinst, code_d, _ = _ssh_exec_raw(ssh_app, cmd_desinst, timeout=300)
+
+            # Restaura /bin/ps
             ssh_exec(sid, ssh_app,
-                "umount /bin/ps 2>/dev/null; cp /bin/ps.real /bin/ps 2>/dev/null || true; rm -f /bin/ps.real /bin/ps_wrapper 2>/dev/null || true",
+                "umount /bin/ps 2>/dev/null; "
+                "cp /bin/ps.real /bin/ps 2>/dev/null || true; "
+                "rm -f /bin/ps.real /bin/ps_wrap 2>/dev/null || true",
                 timeout=10
             )
+
+            for linha in (out_desinst or "").splitlines()[-6:]:
+                if linha.strip():
+                    log(sid, "  [desinst] {}".format(linha.strip()[:120]), "cmd")
+
+            # Remove JRE temporário
+            ssh_exec(sid, ssh_app, "rm -rf /tmp/_esus_jre_bkp 2>/dev/null || true", timeout=30)
+
             if code_d != 0:
-                log(sid, "  Desinstalador encerrou com aviso (normal em alguns casos).", "warn")
-            else:
-                ok("Desinstalador concluído.")
+                log(sid, "  ⚠ Desinstalador encerrou com código {} — limpeza manual.".format(code_d), "warn")
+                ssh_exec(sid, ssh_app,
+                    "rm -rf '{d}/jre' '{d}/webserver' '{d}/resources' 2>/dev/null; "
+                    "rm -f '{d}'/*.jar '{d}/pec.log' 2>/dev/null".format(d=esus_dir),
+                    timeout=30
+                )
+
         else:
-            log(sid, "  Desinstalador não encontrado. Removendo JARs manualmente...", "warn")
-            run_cmd(
-                "find '{}' -maxdepth 1 -name 'eSUS-AB-PEC-*.jar' -delete 2>/dev/null || true".format(app_s["esus_dir"]),
-                timeout=15
+            log(sid, "  Desinstalador/JRE não encontrado — limpeza manual.", "warn")
+            ssh_exec(sid, ssh_app,
+                "rm -rf '{d}/jre' '{d}/webserver' '{d}/resources' 2>/dev/null; "
+                "rm -f '{d}'/*.jar '{d}/pec.log' 2>/dev/null".format(d=esus_dir),
+                timeout=30
             )
 
-        log(sid, "  Limpando registros de inventário do Java...", "cmd")
+        # Garante remoção do pec.config independente do resultado do desinstalador
+        log(sid, "  Removendo pec.config e registros ZeroG...", "cmd")
         ssh_exec(sid, ssh_app,
-            "find /root /home -name '.com.zerog.registry.xml' -delete 2>/dev/null || true; "
-            "find /var -name '.com.zerog.registry.xml' -delete 2>/dev/null || true",
-            timeout=15
+            "rm -f /etc/pec.config 2>/dev/null; "
+            "find / -maxdepth 6 -name 'pec.config' -delete 2>/dev/null; "
+            "find / -maxdepth 6 -name '*.zerog.registry.xml' -delete 2>/dev/null",
+            timeout=20
         )
-        ok("Travas de versão removidas.")
+
+        # Diagnóstico
+        _, ls_clean, _, _ = _ssh_exec_raw(ssh_app,
+            "ls -1 '{}' 2>/dev/null | head -10".format(esus_dir), timeout=10)
+        sobrou = ", ".join([f.strip() for f in ls_clean.strip().splitlines() if f.strip()][:10])
+        log(sid, "  [diag] esus_dir após limpeza: {}".format(sobrou or "(vazio)"), "cmd")
+
+        # Limpeza Liquibase + VERSAOBANCODADOS
+        log(sid, "  Verificando/instalando cliente PostgreSQL...", "cmd")
+        _, psql_check, _, _ = _ssh_exec_raw(ssh_app,
+            "which psql 2>/dev/null || apt-get install -y postgresql-client -qq 2>&1 | tail -1",
+            timeout=60)
+        log(sid, "  psql: {}".format(psql_check.strip()[:60] or "ok"), "cmd")
+
+        log(sid, "  Limpando changesets Liquibase de versões superiores...", "cmd")
+        try:
+            bd_user   = bd_s.get("usuario", "postgres")
+            bd_senha  = bd_s.get("senha", "")
+            bd_banco  = bd_s.get("banco", "esus")
+            bd_cont   = bd_s.get("container", "")
+            partes_alvo = [int(x) for x in versao.split(".")]
+            bd_pg_host = bd_s.get("db_host_interno") or bd_s.get("container") or bd_s.get("host") or "localhost"
+            bd_pg_port = "5432"
+
+            import base64 as _b64pg
+
+            def run_psql_b64(ssh_ref, pg_host, pg_port, pg_user, pg_pass, pg_db, sql, timeout=20):
+                sql_b64 = _b64pg.b64encode(sql.encode()).decode()
+                cmd = (
+                    "export PGPASSWORD='{pw}'; "
+                    "echo '{b64}' | base64 -d | psql -h '{h}' -p {p} -U '{u}' -d '{d}' -t -A 2>&1"
+                ).format(pw=pg_pass, b64=sql_b64, h=pg_host, p=pg_port, u=pg_user, d=pg_db)
+                _, out, rc, _ = _ssh_exec_raw(ssh_ref, cmd, timeout=timeout)
+                return out, rc
+
+            sql_lista = "SELECT DISTINCT filename FROM tb_migracao WHERE filename LIKE 'db/v%' ORDER BY filename;"
+            out_vers, _ = run_psql_b64(ssh_app, bd_pg_host, bd_pg_port, bd_user, bd_senha, bd_banco, sql_lista)
+
+            versoes_vistas = set()
+            for linha in out_vers.strip().splitlines():
+                m = re.match(r"db/v(\d+\.\d+\.\d+)/", linha.strip())
+                if m:
+                    versoes_vistas.add(m.group(1))
+
+            log(sid, "  [liquibase] Versões no banco: {}".format(
+                ", ".join(sorted(versoes_vistas)) or "(nenhuma)"), "cmd")
+
+            versoes_para_deletar = list(set(
+                [v for v in versoes_vistas if [int(x) for x in v.split(".")] > partes_alvo] + [versao]
+            ))
+
+            for v_del in versoes_para_deletar:
+                sql_del = "DELETE FROM tb_migracao WHERE filename LIKE \'db/v{}/%%\';".format(v_del)
+                out_del, _ = run_psql_b64(ssh_app, bd_pg_host, bd_pg_port, bd_user, bd_senha, bd_banco, sql_del)
+                log(sid, "  [liquibase] DELETE {}: {}".format(v_del, out_del.strip()[:80] or "ok"), "cmd")
+
+            sql_versao = "UPDATE tb_config_sistema SET ds_texto = \'{}\' WHERE co_config_sistema = \'VERSAOBANCODADOS\';".format(versao)
+            out_v, _ = run_psql_b64(ssh_app, bd_pg_host, bd_pg_port, bd_user, bd_senha, bd_banco, sql_versao)
+            log(sid, "  [liquibase] VERSAOBANCODADOS → {}: {}".format(versao, out_v.strip()[:80] or "ok"), "cmd")
+
+        except Exception as e_liq:
+            log(sid, "  ⚠ Limpeza Liquibase: {} — prosseguindo.".format(str(e_liq)[:120]), "warn")
+
+        ok("Versão anterior removida com sucesso.")
 
         # ── ETAPA 4: Download do JAR ───────────────────────────────────────
         nome_jar = url_download.split("/")[-1]
