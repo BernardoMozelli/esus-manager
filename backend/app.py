@@ -367,16 +367,21 @@ _sync_status = {"rodando": False, "ultima_sync": None, "erro": None}
 # Script Python que roda dentro do servidor remoto via SSH
 # Acessa o site do e-SUS (sem bloqueio de IP), lista versões e captura URLs
 # Script de sync carregado do arquivo sync_script.py
-# Script executado remotamente via SSH para descobrir versões do e-SUS.
-# Usa requests + bs4 (sem Playwright) — instala dependências se necessário.
 SCRIPT_SYNC = r"""
 import sys, subprocess, json, re
 
 def pip_install(pkg):
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", pkg, "-q", "--break-system-packages"],
-        timeout=120
-    )
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", pkg, "-q", "--break-system-packages"],
+            timeout=120
+        )
+    except Exception:
+        apt_map = {"requests": "python3-requests", "beautifulsoup4": "python3-bs4"}
+        subprocess.check_call(
+            ["apt-get", "install", "-y", "-qq", apt_map.get(pkg, "python3-" + pkg)],
+            timeout=120
+        )
 
 for pkg, imp in [("requests", "requests"), ("beautifulsoup4", "bs4")]:
     try:
@@ -415,21 +420,16 @@ def get_versoes():
         if m2:
             versoes_encontradas.add(m2.group(1))
 
-    debug.append(f"versoes encontradas: {sorted(versoes_encontradas)}")
-
     for v in sorted(versoes_encontradas, reverse=True):
         nome_linux   = f"eSUS-AB-PEC-{v}-Linux64.jar"
-        nome_windows = f"eSUS-AB-PEC-{v}-Windows64.exe"
         url_linux = url_windows = None
         for base in [f"{JAR_BASE}/{HASH_CONHECIDO}/{v}", f"{JAR_BASE}/{v}"]:
             try:
-                resp = requests.head(
-                    f"{base}/{nome_linux}", timeout=10,
-                    headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True
-                )
+                resp = requests.head(f"{base}/{nome_linux}", timeout=10,
+                    headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
                 if resp.status_code == 200:
                     url_linux   = f"{base}/{nome_linux}"
-                    url_windows = f"{base}/{nome_windows}"
+                    url_windows = f"{base}/eSUS-AB-PEC-{v}-Windows64.exe"
                     break
             except Exception:
                 pass
@@ -662,45 +662,31 @@ def buscar_versoes_disponiveis():
 # ─── Thread de atualização ────────────────────────────────────────────────────
 
 def restart_servico(sid, ssh, app_s, container_conhecido=None):
-    """Reinicia o e-SUS PEC cobrindo todos os cenários:
-      A) SSH dentro do container — inicia standalone.sh via nohup (sem pkill)
-      B) SSH no host com Docker — docker restart
-      C) SSH no host bare metal — systemctl / service / standalone.sh direto
+    """Reinicia o e-SUS PEC:
+      A) SSH dentro do container: nohup standalone.sh (sem pkill)
+      B) SSH no host com Docker: docker restart
+      C) Bare metal: systemctl / service / nohup standalone.sh
     """
     service  = app_s.get("service", "e-SUS-PEC")
     esus_dir = app_s.get("esus_dir", "/opt/e-SUS")
     standalone = "{}/webserver/standalone.sh".format(esus_dir)
     log(sid, "Reiniciando serviço do e-SUS PEC...", "cmd")
 
-    # Detecta se SSH está dentro de um container (sem docker no PATH)
-    _, docker_check, _, _ = _ssh_exec_raw(ssh,
-        "which docker 2>/dev/null || echo NO_DOCKER", timeout=5)
+    _, docker_check, _, _ = _ssh_exec_raw(ssh, "which docker 2>/dev/null || echo NO_DOCKER", timeout=5)
     dentro_container = "NO_DOCKER" in docker_check or not docker_check.strip()
 
     if dentro_container:
-        # ── Cenário A: SSH dentro do container ──────────────────────────────
-        # NÃO usa pkill — isso derruba o sshd e o container reinicia do zero
-        # (voltando para tail -f /dev/null se não houver standalone.sh ainda).
-        # Em vez disso, inicia o standalone.sh via nohup diretamente.
         _, sh_check, _, _ = _ssh_exec_raw(ssh,
             "test -f '{}' && echo EXISTS || echo MISSING".format(standalone), timeout=5)
-
         if "EXISTS" in sh_check:
-            # Para o Java atual se estiver rodando (graciosamente)
-            ssh_exec(sid, ssh,
-                "pkill -TERM -f 'pec-bundle' 2>/dev/null || true",
-                timeout=10)
+            ssh_exec(sid, ssh, "pkill -TERM -f 'pec-bundle' 2>/dev/null || true", timeout=10)
             time.sleep(2)
-            # Inicia standalone.sh via nohup — desacoplado da sessão SSH
-            ssh_exec(sid, ssh,
-                "nohup sh '{}' > /tmp/esus_start.log 2>&1 &".format(standalone),
-                timeout=5)
+            ssh_exec(sid, ssh, "nohup sh '{}' > /tmp/esus_start.log 2>&1 &".format(standalone), timeout=5)
             log(sid, "  e-SUS iniciando via standalone.sh (pode levar 2-3 min).", "ok")
         else:
-            log(sid, "  standalone.sh não encontrado — e-SUS não instalado.", "warn")
+            log(sid, "  standalone.sh não encontrado.", "warn")
         return
 
-    # ── Cenário B: SSH no host com Docker ───────────────────────────────────
     container_alvo = container_conhecido
     if not container_alvo:
         for nome in [service, "e-SUS-PEC", "esus-pec", "esus_pec", "esus-app", "esus_app"]:
@@ -712,36 +698,25 @@ def restart_servico(sid, ssh, app_s, container_conhecido=None):
                 break
 
     if container_alvo:
-        _, _, rc = ssh_exec(sid, ssh,
-            "docker restart '{}'".format(container_alvo), timeout=90)
+        _, _, rc = ssh_exec(sid, ssh, "docker restart '{}'".format(container_alvo), timeout=90)
         if rc == 0:
             log(sid, "  Container '{}' reiniciado.".format(container_alvo), "ok")
             time.sleep(8)
             return
 
-    # ── Cenário C: bare metal — systemctl / service / standalone direto ──────
-    _, _, rc_ctl = ssh_exec(sid, ssh,
-        "systemctl start {}".format(service), timeout=30)
+    _, _, rc_ctl = ssh_exec(sid, ssh, "systemctl start {}".format(service), timeout=30)
     if rc_ctl == 0:
         log(sid, "  Serviço '{}' iniciado via systemctl.".format(service), "ok")
         return
-
-    _, _, rc_svc = ssh_exec(sid, ssh,
-        "service {} start".format(service), timeout=30)
+    _, _, rc_svc = ssh_exec(sid, ssh, "service {} start".format(service), timeout=30)
     if rc_svc == 0:
         log(sid, "  Serviço '{}' iniciado via service.".format(service), "ok")
         return
-
-    # Último recurso: standalone.sh direto
-    _, sh_check2, _, _ = _ssh_exec_raw(ssh,
-        "test -f '{}' && echo EXISTS || echo MISSING".format(standalone), timeout=5)
-    if "EXISTS" in sh_check2:
-        ssh_exec(sid, ssh,
-            "nohup sh '{}' > /tmp/esus_start.log 2>&1 &".format(standalone),
-            timeout=5)
+    _, sh2, _, _ = _ssh_exec_raw(ssh, "test -f '{}' && echo EXISTS".format(standalone), timeout=5)
+    if "EXISTS" in sh2:
+        ssh_exec(sid, ssh, "nohup sh '{}' > /tmp/esus_start.log 2>&1 &".format(standalone), timeout=5)
         log(sid, "  standalone.sh iniciado via nohup.", "ok")
         return
-
     log(sid, "  ⚠ Não foi possível reiniciar automaticamente.", "warn")
 
 
@@ -1673,8 +1648,10 @@ def executar_downgrade(sid, amb, versao, url_download):
         # ── ETAPA 3: Desinstalação via desinstalador nativo ─────────────────
         # Copia o JRE para /tmp antes de rodar o desinstalador, assim o processo
         # Java não se mata ao remover o próprio JRE durante a desinstalação.
-        # O desinstalador remove tudo: jre/, webserver/, pec.config, ZeroG.
+        # O desinstalador remove: jre/, webserver/, pec.config, ZeroG.
         # Fallback: limpeza manual caso desinstalador/JRE não existam.
+        # IMPORTANTE: não mexemos no tb_migracao — apenas deletamos os changesets
+        # da versão alvo para forçar reaplicação. Versões intermediárias ficam intactas.
 
         etapa(3, "Desinstalar versão atual")
         log(sid, f"  Diretório : {app_s['esus_dir']}")
@@ -1719,9 +1696,9 @@ def executar_downgrade(sid, amb, versao, url_download):
             java_bin = java_path.strip() or "/tmp/_esus_jre_bkp/current/bin/java"
             log(sid, "  Java: {}".format(java_bin), "cmd")
 
-            # Aplica patch /bin/ps (via base64 para evitar quoting aninhado)
+            # Aplica patch /bin/ps via base64
             import base64 as _b64ps
-            _ps_script = '#!/bin/bash\nif echo "$@" | grep -q "comm 1"; then\n  echo systemd\nelse\n  /bin/ps.real "$@"\nfi\n'
+            _ps_script = "#!/bin/bash\nif echo \"$@\" | grep -q \"comm 1\"; then\n  echo systemd\nelse\n  /bin/ps.real \"$@\"\nfi\n"
             _ps_b64 = _b64ps.b64encode(_ps_script.encode()).decode()
             ssh_exec(sid, ssh_app,
                 "cp /bin/ps /bin/ps.real 2>/dev/null || true; "
@@ -1730,7 +1707,6 @@ def executar_downgrade(sid, amb, versao, url_download):
                 "mount --bind /bin/ps_wrap /bin/ps 2>/dev/null || cp /bin/ps_wrap /bin/ps",
                 timeout=10
             )
-
 
             # Executa desinstalador com o JRE copiado
             log(sid, "  Executando desinstalador nativo...", "cmd")
@@ -1760,7 +1736,6 @@ def executar_downgrade(sid, amb, versao, url_download):
                     "rm -f '{d}'/*.jar '{d}/pec.log' 2>/dev/null".format(d=esus_dir),
                     timeout=30
                 )
-
         else:
             log(sid, "  Desinstalador/JRE não encontrado — limpeza manual.", "warn")
             ssh_exec(sid, ssh_app,
@@ -1769,7 +1744,7 @@ def executar_downgrade(sid, amb, versao, url_download):
                 timeout=30
             )
 
-        # Garante remoção do pec.config independente do resultado do desinstalador
+        # Garante remoção do pec.config (principal trava de versão detectada pelo PecRegistry)
         log(sid, "  Removendo pec.config e registros ZeroG...", "cmd")
         ssh_exec(sid, ssh_app,
             "rm -f /etc/pec.config 2>/dev/null; "
@@ -1784,20 +1759,20 @@ def executar_downgrade(sid, amb, versao, url_download):
         sobrou = ", ".join([f.strip() for f in ls_clean.strip().splitlines() if f.strip()][:10])
         log(sid, "  [diag] esus_dir após limpeza: {}".format(sobrou or "(vazio)"), "cmd")
 
-        # Limpeza Liquibase + VERSAOBANCODADOS
+        # Limpeza Liquibase: apaga APENAS os changesets da versão alvo
+        # (para forçar reaplicação) e corrige VERSAOBANCODADOS.
+        # NÃO apaga versões intermediárias — suas estruturas já existem no banco.
         log(sid, "  Verificando/instalando cliente PostgreSQL...", "cmd")
         _, psql_check, _, _ = _ssh_exec_raw(ssh_app,
             "which psql 2>/dev/null || apt-get install -y postgresql-client -qq 2>&1 | tail -1",
             timeout=60)
         log(sid, "  psql: {}".format(psql_check.strip()[:60] or "ok"), "cmd")
 
-        log(sid, "  Limpando changesets Liquibase de versões superiores...", "cmd")
+        log(sid, "  Limpando changesets da versão alvo no banco...", "cmd")
         try:
             bd_user   = bd_s.get("usuario", "postgres")
             bd_senha  = bd_s.get("senha", "")
             bd_banco  = bd_s.get("banco", "esus")
-            bd_cont   = bd_s.get("container", "")
-            partes_alvo = [int(x) for x in versao.split(".")]
             bd_pg_host = bd_s.get("db_host_interno") or bd_s.get("container") or bd_s.get("host") or "localhost"
             bd_pg_port = "5432"
 
@@ -1812,28 +1787,15 @@ def executar_downgrade(sid, amb, versao, url_download):
                 _, out, rc, _ = _ssh_exec_raw(ssh_ref, cmd, timeout=timeout)
                 return out, rc
 
-            sql_lista = "SELECT DISTINCT filename FROM tb_migracao WHERE filename LIKE 'db/v%' ORDER BY filename;"
-            out_vers, _ = run_psql_b64(ssh_app, bd_pg_host, bd_pg_port, bd_user, bd_senha, bd_banco, sql_lista)
+            # Deleta SOMENTE os changesets da versão alvo
+            # Em vez de deletar, muda para MARK_RAN — evita que o instalador
+            # tente reinserir dados que já existem no banco (duplicate key)
+            sql_del = "UPDATE tb_migracao SET exectype='MARK_RAN' WHERE filename LIKE 'db/v{}/%%';".format(versao)
+            out_del, _ = run_psql_b64(ssh_app, bd_pg_host, bd_pg_port, bd_user, bd_senha, bd_banco, sql_del)
+            log(sid, "  [liquibase] MARK_RAN v{}: {}".format(versao, out_del.strip()[:80] or "ok"), "cmd")
 
-            versoes_vistas = set()
-            for linha in out_vers.strip().splitlines():
-                m = re.match(r"db/v(\d+\.\d+\.\d+)/", linha.strip())
-                if m:
-                    versoes_vistas.add(m.group(1))
-
-            log(sid, "  [liquibase] Versões no banco: {}".format(
-                ", ".join(sorted(versoes_vistas)) or "(nenhuma)"), "cmd")
-
-            versoes_para_deletar = list(set(
-                [v for v in versoes_vistas if [int(x) for x in v.split(".")] > partes_alvo] + [versao]
-            ))
-
-            for v_del in versoes_para_deletar:
-                sql_del = "DELETE FROM tb_migracao WHERE filename LIKE \'db/v{}/%%\';".format(v_del)
-                out_del, _ = run_psql_b64(ssh_app, bd_pg_host, bd_pg_port, bd_user, bd_senha, bd_banco, sql_del)
-                log(sid, "  [liquibase] DELETE {}: {}".format(v_del, out_del.strip()[:80] or "ok"), "cmd")
-
-            sql_versao = "UPDATE tb_config_sistema SET ds_texto = \'{}\' WHERE co_config_sistema = \'VERSAOBANCODADOS\';".format(versao)
+            # Atualiza VERSAOBANCODADOS para a versão alvo
+            sql_versao = "UPDATE tb_config_sistema SET ds_texto = '{}' WHERE co_config_sistema = 'VERSAOBANCODADOS';".format(versao)
             out_v, _ = run_psql_b64(ssh_app, bd_pg_host, bd_pg_port, bd_user, bd_senha, bd_banco, sql_versao)
             log(sid, "  [liquibase] VERSAOBANCODADOS → {}: {}".format(versao, out_v.strip()[:80] or "ok"), "cmd")
 
@@ -1853,39 +1815,16 @@ def executar_downgrade(sid, amb, versao, url_download):
         # Verifica se o arquivo já existe — tenta no host e dentro do container
         log(sid, "  Verificando se o arquivo já existe no servidor...")
 
-        # Primeiro descobre se o e-SUS roda em container para saber onde verificar
-        _, pid1_check, _ = ssh_exec(sid, ssh_app,
-            "ps --no-headers -o comm 1 2>/dev/null || echo unknown", timeout=5)
-        pid1_check = pid1_check.strip().lower()
-        em_container_check = pid1_check not in ("systemd", "init", "sbin/init")
-
+        # Verifica arquivo diretamente via SSH (funciona tanto no host quanto dentro do container)
         arquivo_ja_existe = False
         tamanho_encontrado = None
 
-        if em_container_check:
-            # Descobre o container e verifica o arquivo dentro dele
-            _, containers_out, _ = ssh_exec(sid, ssh_app,
-                "docker ps --format '{{.Names}}' 2>/dev/null | head -5", timeout=10)
-            container_check = None
-            for cname in containers_out.strip().splitlines():
-                if cname.strip():
-                    container_check = cname.strip()
-                    break
-            if container_check:
-                _, out_check, _ = ssh_exec(sid, ssh_app,
-                    f"docker exec '{container_check}' stat -c%s '{jar_path}' 2>/dev/null || echo 'NOT_FOUND'",
-                    timeout=10
-                )
-                out_check = out_check.strip()
-                log(sid, f"  Verificando dentro do container '{container_check}': {out_check[:40]}")
-            else:
-                out_check = "NOT_FOUND"
-        else:
-            _, out_check, _ = ssh_exec(sid, ssh_app,
-                f"stat -c%s '{jar_path}' 2>/dev/null || echo 'NOT_FOUND'",
-                timeout=10
-            )
-            out_check = out_check.strip()
+        _, out_check, _ = ssh_exec(sid, ssh_app,
+            f"stat -c%s '{jar_path}' 2>/dev/null || echo 'NOT_FOUND'",
+            timeout=10
+        )
+        out_check = out_check.strip()
+        log(sid, f"  Verificando: {jar_path} → {out_check[:40]}")
 
         if out_check not in ("", "NOT_FOUND"):
             try:
@@ -2021,15 +1960,79 @@ def executar_downgrade(sid, amb, versao, url_download):
         log(sid, "  JDBC URL  : {}".format(jdbc), "cmd")
         log(sid, "  PG User   : {}".format(pg_user), "cmd")
 
-        # === 5. EXECUTAR INSTALADOR ===
+        # === 5. EXECUTAR INSTALADOR (com retry automático para erros Liquibase) ===
         log(sid, "  Executando instalador...")
-        _, inst_out, code_inst = ssh_exec(sid, ssh_app, "bash '{}' 2>&1".format(script_path), timeout=3600)
-        
+
+        def _run_inst_dg():
+            _, o, c = ssh_exec(sid, ssh_app, "bash '{}' 2>&1".format(script_path), timeout=3600)
+            return o, c
+
+        def _extrair_cs_dg(out):
+            import re as _re_dg
+            cs = []
+            for ln in (out or "").splitlines():
+                m = _re_dg.search(r"ChangeSet (db/[^:]+[.]yaml)::([^:]+)::[^ ]+ encountered an exception", ln)
+                if m and ("already exists" in out or "duplicate key" in out or "violates unique constraint" in out or "does not exist" in out):
+                    cs.append({"filename": m.group(1), "id": m.group(2), "tipo": "already_exists"})
+                m2 = _re_dg.search(r"(db/[^:]+[.]yaml)::([^:]+)::([^ ]+) was: ([^ ]+) but is now: ([^ ]+)", ln)
+                if m2:
+                    cs.append({"filename": m2.group(1), "id": m2.group(2),
+                               "tipo": "checksum", "checksum": m2.group(5).strip()})
+            return cs
+
+        def _fix_cs_dg(cs_list, pg_h, pg_u, pg_pw, pg_db):
+            import base64 as _b64dg
+            for cs in cs_list:
+                if cs["tipo"] == "checksum":
+                    sql = "UPDATE tb_migracao SET md5sum='{}' WHERE id='{}' AND filename='{}';".format(
+                        cs["checksum"].replace("'","''"),
+                        cs["id"].replace("'","''"),
+                        cs["filename"].replace("'","''"))
+                    log(sid, "  [liquibase] UPDATE checksum {}".format(cs["id"][:50]), "cmd")
+                else:
+                    sql = (
+                        "INSERT INTO tb_migracao "
+                        "(id,author,filename,dateexecuted,orderexecuted,exectype,md5sum,description,liquibase,deployment_id) "
+                        "SELECT '{}','Desenvolvimento','{}',NOW(),"
+                        "COALESCE((SELECT MAX(orderexecuted) FROM tb_migracao),0)+1,"
+                        "'MARK_RAN','','auto-marked','4.27.0','0000000000' "
+                        "WHERE NOT EXISTS (SELECT 1 FROM tb_migracao WHERE id='{}' AND filename='{}');"
+                        "UPDATE tb_migracao SET exectype='MARK_RAN' "
+                        "WHERE id='{}' AND filename='{}' AND exectype!='MARK_RAN';"
+                    ).format(
+                        cs["id"].replace("'","''"), cs["filename"].replace("'","''"),
+                        cs["id"].replace("'","''"), cs["filename"].replace("'","''"),
+                        cs["id"].replace("'","''"), cs["filename"].replace("'","''")
+                    )
+                    log(sid, "  [liquibase] MARK_RAN {}".format(cs["id"][:50]), "cmd")
+                b64 = _b64dg.b64encode(sql.encode()).decode()
+                cmd = ("export PGPASSWORD='{pw}'; echo '{b64}' | base64 -d | "
+                       "psql -h '{h}' -p 5432 -U '{u}' -d '{d}' -t -A 2>&1"
+                       ).format(pw=pg_pw, b64=b64, h=pg_h, u=pg_u, d=pg_db)
+                _, o2, _, _ = _ssh_exec_raw(ssh_app, cmd, timeout=15)
+                log(sid, "  [liquibase] resultado: {}".format(o2.strip()[:60] or "ok"), "cmd")
+
+        _pg_h_dg  = bd_s.get("db_host_interno") or bd_s.get("container") or bd_s.get("host") or "localhost"
+        _pg_u_dg  = bd_s.get("usuario", "postgres")
+        _pg_pw_dg = bd_s.get("senha", "")
+        _pg_db_dg = bd_s.get("banco", "esus")
+
+        inst_out, code_inst = _run_inst_dg()
+        for _retry_dg in range(5):
+            if code_inst == 0:
+                break
+            cs_falhos = _extrair_cs_dg(inst_out)
+            if not cs_falhos:
+                break
+            log(sid, "  ⚠ Liquibase: {} problema(s) — corrigindo e retentando ({}/5)...".format(
+                len(cs_falhos), _retry_dg+1), "warn")
+            _fix_cs_dg(cs_falhos, _pg_h_dg, _pg_u_dg, _pg_pw_dg, _pg_db_dg)
+            inst_out, code_inst = _run_inst_dg()
+
         for line in inst_out.splitlines()[-5:] if inst_out else []:
             if any(k in line for k in ["FATAL", "ERROR", "Exception", "refused", "password", "JDBC", "url", "username"]):
                 log(sid, "  [diag] {}".format(line.strip()[:120]), "warn")
 
-        # === 6. RESTAURAR PATCH ===
         log(sid, "  Restaurando /bin/ps...", "cmd")
         ssh_exec(sid, ssh_app,
             "umount /bin/ps 2>/dev/null; "
